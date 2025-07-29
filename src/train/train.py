@@ -179,11 +179,15 @@ model = QCBM(ansatz, n_bits, L, mmd_fn, target_probs)
 key = jax.random.PRNGKey(0)
 params = jax.random.normal(key, shape=(pc,))
 
+from jax import remat
+loss_fn = remat(model.loss)
+
 
 # ------------ training set up ------------
 import optax
 import catalyst
-
+import psutil
+import numpy as np
 # opt = optax.adam(1e-2)
 
 lr_sched = optax.exponential_decay(  # 从 1e‑2 → 每 200 步 × 0.9
@@ -196,28 +200,63 @@ opt = optax.chain(
 
 
 def update_step(i, params, opt_state, loss_log):
-    loss_val, grads = catalyst.value_and_grad(model.loss)(params)
+    loss_val, grads = catalyst.value_and_grad(loss_fn)(params)
     updates, opt_state = opt.update(grads, opt_state)
     params = optax.apply_updates(params, updates)
     loss_log = loss_log.at[i].set(loss_val)
-    grad_norm = optax.global_norm(grads)
-    catalyst.debug.print("Step {i}: loss = {loss}, grad_norm = {g}", i=i, loss=loss_val, g=grad_norm)
+    grad_norm = optax.global_norm(grads) 
+    mem_used = psutil.virtual_memory().used / (1024 ** 3)
+    catalyst.debug.print(
+        "Step {i}: loss={loss:.6f}, grad_norm={g:.4f}, RAM={mem:.2f} GB",
+        i=i, loss=loss_val, g=grad_norm, mem=mem_used
+    )
 
     return (params, opt_state, loss_log)
 
-@qml.qjit     
-def optimization(params, n_steps: int = 1000):
+
+@qml.qjit
+def optimization(params, n_steps: int = 1000, chunk: int = 50):
     opt_state = opt.init(params)
     loss_log  = jnp.zeros(n_steps, dtype=params.dtype)
+
+    def outer_body(start, val):
+        params, opt_state, loss_log = val
+        steps = jnp.minimum(chunk, n_steps - start)
+
+        # inner loop: do "steps" updates
+        def inner_body(i, val):
+            params, opt_state, loss_log = val
+            return update_step(start + i, params, opt_state, loss_log)
+
+        params, opt_state, loss_log = qml.for_loop(
+            0, steps, 1
+        )(inner_body)((params, opt_state, loss_log))
+
+        catalyst.debug.print(
+            "--- Chunk finished at step {s}, RAM used ~ {mem:.2f} GB",
+            s=start + steps,
+            mem=psutil.virtual_memory().used / (1024**3),
+        )
+
+        import gc
+        gc.collect()
+        jax.clear_caches()
+        
+        return params, opt_state, loss_log
+
+    # Outer loop: run multiple chunks
     params, opt_state, loss_log = qml.for_loop(
-        0, n_steps, 1
-    )(update_step)(params, opt_state, loss_log)
+        0, n_steps, chunk
+    )(outer_body)((params, opt_state, loss_log))
+
     return params, loss_log
 
 
-# ------------ training steps ------------
 
-trained_params, loss_hist = optimization(params)
+
+# ------------ training steps ------------
+chunk_size = 50
+trained_params, loss_hist = optimization(params, n_steps= 1000)
 
 jax.block_until_ready(trained_params)      # wait until training ends
 
