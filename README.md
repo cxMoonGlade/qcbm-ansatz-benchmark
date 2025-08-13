@@ -32,5 +32,6 @@ This repository provides scripts and Jupyter notebooks to train Quantum Circuit 
 
 ## Notes
 
-* The notebooks are designed for flexible experimentation with different ansatz types.
+* The notebooks and sripts are designed for flexible experimentation with different ansatz types.
 * Please ensure that all required dependencies are installed as specified in your environment.
+* Please ensure that your BIOS `secure_boot` mode is `disabled`
