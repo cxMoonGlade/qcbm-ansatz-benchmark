@@ -12,7 +12,52 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp
 
 
-import sys
+# === explicit CLI mapping: put this near the top of gpu_train.py =============
+import argparse, os, sys
+from pathlib import Path
+
+# Ensure repo root is importable when running: python ./src/train/gpu_train.py
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+# Import the four ansatz modules explicitly
+from src.circuits.ansatz1 import hardware_efficient_ansatz
+from src.circuits.ansatz2 import ising_structured_ansatz
+from src.circuits.ansatz3 import eh2d_ansatz
+from src.circuits.ansatz4 import mi_ansatz
+
+ANSATZ_FNS = {
+    1: hardware_efficient_ansatz,
+    2: ising_structured_ansatz,
+    3: eh2d_ansatz,
+    4: mi_ansatz,
+}
+
+def parse_ansatz_id(default_id: int = 2) -> int:
+    """Support: -1/-2/-3/-4 or -a/--ansatz 1..4; env override ANSATZ=1..4."""
+    p = argparse.ArgumentParser(add_help=False)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("-a", "--ansatz", type=int, choices=[1, 2, 3, 4])
+    g.add_argument("-1", dest="one",   action="store_true")
+    g.add_argument("-2", dest="two",   action="store_true")
+    g.add_argument("-3", dest="three", action="store_true")
+    g.add_argument("-4", dest="four",  action="store_true")
+    args, _ = p.parse_known_args()
+
+    if args.ansatz: return args.ansatz
+    if args.one:    return 1
+    if args.two:    return 2
+    if args.three:  return 3
+    if args.four:   return 4
+    env = os.getenv("ANSATZ")
+    if env in {"1","2","3","4"}: return int(env)
+    return default_id
+
+ANSATZ_ID = parse_ansatz_id(default_id=1)
+ANSA_FN   = ANSATZ_FNS[ANSATZ_ID]
+print(f"[info] Using ansatz{ANSATZ_ID}: {ANSA_FN.__module__}.{ANSA_FN.__name__}")
+
 
 # 1. current file（train.py）abspath
 current_file = os.path.abspath(__file__)
@@ -129,7 +174,7 @@ from src.circuits.ansatz4 import mi_ansatz
 ## Control # of Params around 100
 
 
-ansatz = ising_structured_ansatz
+ansatz = ANSA_FN
 n_qubits= 12
 mmd_fn = mmdagg_prob
 R = 3
@@ -138,26 +183,23 @@ keep_edges = 20
 L1 = 10
 L2 = 5
 
-def ansatz_set(ansatz):
+def pc_set(ansatz):
+    print(ansatz)
     if ansatz == hardware_efficient_ansatz:
         pc = count_params1(n_bits, L1)
         L = L1
-        id = 1
 
     if ansatz == ising_structured_ansatz:
         pc = count_params2(R, C, L2, False)
         L = L2
-        id = 2
 
     if ansatz == eh2d_ansatz:
         pc = count_params3(R, C, L2)
         L = L2
-        id = 3
 
     if ansatz == mi_ansatz:
         pc = count_params4(n_qubits, L2, keep_edges)
         L = L2
-        id = 4
         bit_np = df[bit_cols].values
         mi_mat = mutual_information_matrix(bit_np)
         triu_i, triu_j = jnp.triu_indices(n_qubits, k=1)
@@ -172,12 +214,12 @@ def ansatz_set(ansatz):
                 **kw
             )
         ansatz = ansatz_mi
-    return ansatz, L, pc, id
+    return ansatz, L, pc
 
 
-ansatz, L, pc, id = ansatz_set(ansatz)
+L, pc= pc_set(ansatz)
 
-model = QCBM(ansatz, n_bits, L, mmd_fn, target_probs)
+model = QCBM(ansatz=ANSA_FN, n_qubits=n_bits, L=L, mmd_fn=mmd_fn, target_probs = target_probs)
 model.build_circuits()
 key = jax.random.PRNGKey(0)
 params = jax.random.normal(key, shape=(pc,))
@@ -247,7 +289,7 @@ if __name__ == "__main__":
     # ───── save ─────
     import numpy as np
     from pathlib import Path
-    run_id = f"result{id}"
+    run_id = f"result{ANSATZ_ID}"
 
 
     out_dir = Path("data/results/Qubits12")/run_id
