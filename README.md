@@ -7,6 +7,7 @@ This repository provides scripts and Jupyter notebooks to train Quantum Circuit 
 ### 1. Training
 
 * **Select an Ansatz:**
+
   In `train_processes.ipynb` navigate to the sixth code cell labeled
 
   OR
