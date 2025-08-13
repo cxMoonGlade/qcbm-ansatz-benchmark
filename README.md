@@ -7,7 +7,12 @@ This repository provides scripts and Jupyter notebooks to train Quantum Circuit 
 ### 1. Training
 
 * **Select an Ansatz:**
-  In `train_processes.ipynb`, navigate to the sixth code cell labeled
+  In `train_processes.ipynb` navigate to the sixth code cell labeled
+
+  OR
+
+  In 'gpu_train.py' for a better performance if you have an advanced Nvidia GPU
+  
   `# ------------ ansatz factory ------------`.
 
 * **Choose Your Ansatz:**
@@ -18,7 +23,7 @@ This repository provides scripts and Jupyter notebooks to train Quantum Circuit 
   * `eh2d_ansatz`
   * `mi_ansatz`
 
-* **Run the Notebook:**
+* **Run the Code:**
   After choosing your desired ansatz, simply click "Run All" to execute all cells and start the training process.
 
 ### 2. FRC Evaluation
