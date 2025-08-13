@@ -217,7 +217,7 @@ def pc_set(ansatz):
     return ansatz, L, pc
 
 
-L, pc= pc_set(ansatz)
+ANSA_FN, L, pc= pc_set(ansatz)
 
 model = QCBM(ansatz=ANSA_FN, n_qubits=n_bits, L=L, mmd_fn=mmd_fn, target_probs = target_probs)
 model.build_circuits()
