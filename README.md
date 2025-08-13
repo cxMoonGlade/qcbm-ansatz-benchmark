@@ -28,7 +28,7 @@ This repository provides scripts and Jupyter notebooks to train Quantum Circuit 
 
 ### 2. FRC Evaluation
 
-* To evaluate **Fidelity, Rate, and Coverage (FRC)**, open and run `last.ipynb`.
+* To evaluate **Fidelity, Rate, and Coverage (FRC)**, open and run `evaluation.ipynb`.
 
 ## Notes
 
