@@ -26,20 +26,22 @@ class QCBM:
             else jnp.array(target_probs)
         )
 
-        self.dev = device or qml.device("lightning.gpu", wires=n_qubits, shots=shots)
-        self.dev2 = qml.device("lightning.gpu", wires = n_qubits, shots = 10_000)
-
+        self.circuit = None
+        self.circuit2 = None
         
-        @qml.qjit
-        @qml.qnode(self.dev, interface="jax")
+    def build_circuits(self):
+        dev = qml.device("default.qubit", wires=self.n_qubits, shots=self.shots)
+        dev2 = qml.device("default.qubit", wires = self.n_qubits, shots = 10_000)
+
+        @qml.qnode(dev, interface="jax", diff_method="backprop")
         def circuit(params):
             self.ansatz(params, wires = range(self.n_qubits), L = self.L)
             return qml.probs(wires=range(self.n_qubits))
         
         self.circuit = circuit
         
-        @qml.qjit
-        @qml.qnode(self.dev2, interface="jax")
+        # @qml.qjit
+        @qml.qnode(dev2, interface="jax", )
         def circuit2(params):
             self.ansatz(params, wires= range(self.n_qubits), L = self.L)
             return qml.sample()
@@ -47,6 +49,9 @@ class QCBM:
         self.circuit2 =  circuit2
 
     def loss(self, params):
+        if self.circuit is None:
+            raise RuntimeError("Call build_circuits() before using loss or circuit")
+
         params = (
             params if isinstance(params, (jnp.ndarray, jax.Array))
             else jnp.array(params)
