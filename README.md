@@ -11,7 +11,7 @@ This repository provides scripts and Jupyter notebooks to train Quantum Circuit 
 
   OR
 
-  In 'gpu_train.py' for a better performance if you have an advanced Nvidia GPU
+  In `gpu_train.py` for a better performance if you have an advanced Nvidia GPU, please run `python ./src/train/gpu_train.py` if you current working path is the main folder(recommand).
   
   `# ------------ ansatz factory ------------`.
 
