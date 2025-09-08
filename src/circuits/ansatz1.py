@@ -5,7 +5,7 @@ def hardware_efficient_ansatz(params, wires, L):
     n = 8
     ptr = 0
 
-    for l in range(L // 2):
+    for l in range(L):
         qml.RX(params[ptr], wires= 0)
         ptr += 1
         qml.RZ(params[ptr], wires= 0)
