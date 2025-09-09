@@ -74,7 +74,7 @@ def _build_core(D_l1, D_l2):
     return _core
 
 
-# ---------- 4) 权重 ----------
+# ---------- 4) Weight ----------
 def _create_weights(N: int, mode: str = "uniform") -> jnp.ndarray:
     w = jnp.ones(N)
     if mode == "decreasing":
@@ -88,7 +88,7 @@ def _create_weights(N: int, mode: str = "uniform") -> jnp.ndarray:
     return w / w.sum()
 
 
-# ---------- 5) kernel / metric 序列 ----------
+# ---------- 5) kernel / metric Series ----------
 def _ids_for_kernel(flag: str, n_bw: int):
     def seq(kname, metric):
         k = _KID[kname]; m = _MID[metric]
@@ -122,7 +122,7 @@ def _ids_for_kernel(flag: str, n_bw: int):
     raise ValueError(f"Unknown kernel flag '{flag}'")
 
 
-# ---------- 6) 公开 API ----------
+# ---------- 6) Public API ----------
 def mmdagg_prob(
     p, q,
     *,

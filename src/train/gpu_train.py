@@ -117,9 +117,11 @@ def mutual_information_matrix(bits: jnp.ndarray) -> jnp.ndarray:
 from itertools import product
 
 import pandas as pd
-data_path = os.path.join(report1_dir, "data_2d/Qubits12/train.csv")
+data_path = os.path.join(report1_dir, "data_2d/Qubits8/train.csv")
 df = pd.read_csv(data_path)
-n_bits = 12
+n_bits = 8
+L1 =4
+L_M =3
 bit_cols = [f"q{i}" for i in range(n_bits)]
 bitstrings = (
     df[bit_cols]
@@ -139,13 +141,13 @@ print("target_probs shape:", target_probs.shape,
       "sum =", float(target_probs.sum()))
 
 # ------------ parameter counts ------------
-# P = 222, n = 12, L = 10
+# P = 102, n = 8, L = 4
 def count_params1(n_bits: int, L: int) -> int:
     """
     return params requested for ansatz1
     """
     assert L % 2 == 0, "for ansatz1, L must be even number"
-    return int((3 * L / 2 + 1) * n_bits - (L / 2))
+    return int((3 * L  + 1) * n_bits - (L))
 
 # R = 3, C = 4, PL = 45, L = 5, P = 225 
 def count_params2(R: int, C: int, L: int, periodic: bool = False) -> int:
@@ -175,31 +177,34 @@ from src.circuits.ansatz4 import mi_ansatz
 
 
 ansatz = ANSA_FN
-n_qubits= 12
+n_qubits= 8
 mmd_fn = mmdagg_prob
-R = 3
+R = 2
 C = 4
-keep_edges = 20
-L1 = 10
-L2 = 5
+keep_edges = 16
+
 
 def pc_set(ansatz):
     print(ansatz)
     if ansatz == hardware_efficient_ansatz:
         pc = count_params1(n_bits, L1)
         L = L1
+        id = 1
 
     if ansatz == ising_structured_ansatz:
-        pc = count_params2(R, C, L2, False)
-        L = L2
+        pc = count_params2(R, C, L1, False)
+        L = L1
+        id = 2
 
     if ansatz == eh2d_ansatz:
-        pc = count_params3(R, C, L2)
-        L = L2
+        pc = count_params3(R, C, L1)
+        L = L1
+        id = 3
 
     if ansatz == mi_ansatz:
-        pc = count_params4(n_qubits, L2, keep_edges)
-        L = L2
+        pc = count_params4(n_qubits, L_M, keep_edges)
+        L = L_M
+        id = 4
         bit_np = df[bit_cols].values
         mi_mat = mutual_information_matrix(bit_np)
         triu_i, triu_j = jnp.triu_indices(n_qubits, k=1)
@@ -214,10 +219,11 @@ def pc_set(ansatz):
                 **kw
             )
         ansatz = ansatz_mi
-    return ansatz, L, pc
+        
+    return ansatz, L, pc, id
 
 
-ANSA_FN, L, pc= pc_set(ansatz)
+ANSA_FN, L, pc, _= pc_set(ansatz)
 
 model = QCBM(ansatz=ANSA_FN, n_qubits=n_bits, L=L, mmd_fn=mmd_fn, target_probs = target_probs)
 model.build_circuits()
@@ -235,44 +241,76 @@ opt = optax.chain(
     optax.adam(lr_sched, b2=0.999)
 )
 
-# loss_fn = remat(model.loss)  # keep remat for memory efficiency
-# grad_fn = value_and_grad(loss_fn)
-batched_loss = jax.vmap(model.loss, in_axes=(0,))
+def single_loss(p):
+    return model.loss(p)
+
+batched_loss = jax.vmap(single_loss, in_axes=(0,))
 
 def batch_loss_fn(params_batch):
-    losses = batched_loss(params_batch)  # shape (batch_size,)
-    return jnp.mean(losses)
+    losses, metrics = batched_loss(params_batch)  # shape (batch_size,)
+    mean_loss = jnp.mean(losses)
+    mean_metrics = {k: jnp.mean(v) for k, v in metrics.items()}
+    return mean_loss, mean_metrics
 
-grad_fn = jax.jit(jax.value_and_grad(batch_loss_fn))
+grad_fn = jax.jit(jax.value_and_grad(batch_loss_fn, has_aux = True))
 
+import time, numpy as np
+from jax.experimental import io_callback  # add `# type: ignore` if Pylance nags
 
+def _now_host(_=None):
+    # MUST be a 0-D NumPy scalar, not a vector
+    return np.array(time.perf_counter(), dtype=np.float64)
 
-@jit
-def update_step(i, params, opt_state, loss_log):
-    loss_val, grads = grad_fn(params)  # params shape (batch_size, num_params)
-    updates, opt_state = opt.update(grads, opt_state)
+@jax.jit
+def update_step(i, params, opt_state,
+                loss_log, mmd_log, kl_log, params_log, grad_log, grad_norm_log, time_log):
+    t0 = io_callback(_now_host, jax.ShapeDtypeStruct((), jnp.float64), None)
+
+    (loss_val, aux), grads = grad_fn(params)
+    updates, opt_state = opt.update(grads, opt_state, params)
     params = optax.apply_updates(params, updates)
-    loss_log = loss_log.at[i].set(loss_val)
-    return params, opt_state, loss_log, loss_val
 
+    t1 = io_callback(_now_host, jax.ShapeDtypeStruct((), jnp.float64), None)
+    dt = t1 - t0
+    dt_ms = dt * jnp.array(1e3, jnp.float64)
+    gnorm = optax.global_norm(grads)
 
+    loss_log      = loss_log.at[i].set(loss_val)
+    mmd_log       = mmd_log.at[i].set(aux["mmd"])
+    kl_log        = kl_log.at[i].set(aux["kl"])
+    params_log    = params_log.at[i].set(params)
+    grad_log      = grad_log.at[i].set(grads)
+    grad_norm_log = grad_norm_log.at[i].set(gnorm)
+    time_log      = time_log.at[i].set(dt_ms)  # OK now: scalar into (n_steps,)
+
+    jax.debug.print("Step {i}: loss={loss:.6f} mmd={mmd:.6f} kl={kl:.6f} ||g||={gn:.6f} dt_ms={dt_ms:.3f}ms",
+                    i=i, loss=loss_val, mmd=aux["mmd"], kl=aux["kl"], gn=gnorm, dt_ms=dt_ms)
+    return params, opt_state, loss_log, mmd_log, kl_log, params_log, grad_log, grad_norm_log, time_log
 
 def _train(params, n_steps: int, chunk: int):
     opt_state = opt.init(params)
-    loss_log = jnp.zeros(n_steps, dtype=params.dtype)
+    dtype = params.dtype
 
-    def inner_step(i, carry):
-        params, opt_state, loss_log = carry
-        loss_val, grads = grad_fn(params)
-        updates, opt_state = opt.update(grads, opt_state)
-        params = optax.apply_updates(params, updates)
-        loss_log = loss_log.at[i].set(loss_val)
+    loss_log      = jnp.zeros((n_steps,), dtype=dtype)
+    mmd_log       = jnp.zeros((n_steps,), dtype=dtype)
+    kl_log        = jnp.zeros((n_steps,), dtype=dtype)
+    params_log    = jnp.zeros((n_steps,) + params.shape, dtype=dtype)
+    grad_log      = jnp.zeros((n_steps,) + params.shape, dtype=dtype)
+    grad_norm_log = jnp.zeros((n_steps,), dtype=dtype)
+    time_log      = jnp.zeros((n_steps,), dtype=jnp.float64)
 
-        jax.debug.print("Step {i}: loss={loss}", i=i, loss=loss_val)
+    def body(i, carry):
+        (params, opt_state, loss_h, mmd_h, kl_h, params_h, grads_h, gnorm_h, time_h) = carry
+        return update_step(i, params, opt_state, loss_h, mmd_h, kl_h, params_h, grads_h, gnorm_h, time_h)
 
-        return params, opt_state, loss_log
+    (params, opt_state, loss_log, mmd_log, kl_log, params_log, grad_log, grad_norm_log, time_log) = \
+        jax.lax.fori_loop(0, n_steps, body,
+                          (params, opt_state, loss_log, mmd_log, kl_log, params_log, grad_log, grad_norm_log, time_log))
 
-    return jax.lax.fori_loop(0, n_steps, inner_step, (params, opt_state, loss_log))
+    logs = {"loss": loss_log, "mmd": mmd_log, "kl": kl_log,
+            "params": params_log, "grads": grad_log, "grad_norm": grad_norm_log,
+            "step_time": time_log}
+    return params, opt_state, logs
 
 
 if __name__ == "__main__":
@@ -282,21 +320,28 @@ if __name__ == "__main__":
     params = jax.device_put(params, gpu)
     target_probs = jax.device_put(jnp.asarray(probs_full.values, dtype=jnp.float64), gpu)
 
-    trained_params, opt_state, loss_hist = _train(params, 1000, 50)
+    trained_params, opt_state, logs = _train(params, 1000, 50)
 
     jax.block_until_ready(trained_params)      # wait until training ends
 
     # ───── save ─────
-    import numpy as np
     from pathlib import Path
     run_id = f"result{ANSATZ_ID}"
 
 
-    out_dir = Path("data/results/Qubits12")/run_id
+    out_dir = Path("data/results/Qubits8")/run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(out_dir / f"params.npy",  jax.device_get(trained_params))
-    np.save(out_dir / f"loss.npy", jax.device_get(loss_hist))
+    np.save(out_dir / f"final_params.npy",  jax.device_get(trained_params))
+    np.save(out_dir / f"loss.npy", jax.device_get(logs["loss"]))
+    np.save(out_dir / f"mmd.npy", jax.device_get(logs["mmd"]))
+    np.save(out_dir / f"kl.npy", jax.device_get(logs["kl"]))
+    np.save(out_dir / f"params.npy", jax.device_get(logs["params"]))
+    np.save(out_dir / f"grads.npy", jax.device_get(logs["grads"]))
+    np.save(out_dir / f"grad_norm.npy", jax.device_get(logs["grad_norm"]))
+    np.save(out_dir / f"step_time.npy", jax.device_get(logs["step_time"]))
 
-    print(f"model params have saved to: {out_dir / 'params.npy'}")
-    print(f"Loss record has saved to: {out_dir / 'loss.npy'}")
+
+
+    print(f"model params have saved to: {out_dir / 'fianl_params.npy'}")
+    print(f"Loss record has saved to: {out_dir / '/'}")

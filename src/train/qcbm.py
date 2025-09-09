@@ -79,7 +79,8 @@ class QCBM:
             q = q / q.sum()
             return jnp.sum(p * jnp.log(p / q))
 
-        loss = loss_mmd * 0.7 + kl_div(self.target_probs, qcbm_probs) * 0.3
-        return loss
+        loss_kl = kl_div(self.target_probs, qcbm_probs)
+        loss = loss_mmd * 0.5 + loss_kl * 0.5
+        return loss, {"mmd": loss_mmd, "kl": loss_kl}
     
 

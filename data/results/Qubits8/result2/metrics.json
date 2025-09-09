@@ -1,12 +1,12 @@
 {
   "ansatz": 2,
   "shots": 10000,
-  "Fidelity": 1.0,
-  "Rate": 0.05845086705202312,
-  "Coverage": 0.5895953757225434,
+  "Fidelity": 0.0,
+  "Rate": 0.0,
+  "Coverage": 0.0,
   "counts": {
-    "|G_train|": 9605,
-    "|G_new|": 395,
-    "|G_sol|": 395
+    "|G_train|": 0,
+    "|G_new|": 187,
+    "|G_sol|": 0
   }
 }
