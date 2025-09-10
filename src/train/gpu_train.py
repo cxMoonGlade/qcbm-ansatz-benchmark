@@ -4,6 +4,9 @@ import os
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false" 
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 os.environ["JAX_PLATFORM_NAME"] = "gpu"
+os.environ["JAX_TRACEBACK_FILTERING"]="off"
+
+
 
 import pennylane as qml
 import jax
@@ -13,7 +16,7 @@ import jax.numpy as jnp
 
 
 # === explicit CLI mapping: put this near the top of gpu_train.py =============
-import argparse, os, sys
+import argparse, sys
 from pathlib import Path
 
 # Ensure repo root is importable when running: python ./src/train/gpu_train.py
@@ -69,7 +72,6 @@ if report1_dir not in sys.path:
     sys.path.insert(0, report1_dir)
 
 
-from mmdagg_probs import mmdagg_prob
 from qcbm import QCBM
 
 
@@ -174,11 +176,23 @@ from src.circuits.ansatz2 import ising_structured_ansatz
 from src.circuits.ansatz3 import eh2d_ansatz
 from src.circuits.ansatz4 import mi_ansatz
 ## Control # of Params around 100
+from src.train.mmd2 import build_mmdagg_prob
+d = 256
+mmd_eval = build_mmdagg_prob(
+    d,
+    kernel="laplace_gaussian",        # or "all", "all_matern_l1_l2", ...
+    number_bandwidths=5,
+    weights_type="centred",
+    dtype=jnp.float64,
+    return_details=False,             # True if you want per-test info
+    use_sqrt=False,                   # True if you want MMD (not MMD^2)
+)
 
-
+# inside your model.loss:
+# qcbm_probs = self.circuit(params)  # (d,)
 ansatz = ANSA_FN
 n_qubits= 8
-mmd_fn = mmdagg_prob
+mmd_fn = mmd_eval
 R = 2
 C = 4
 keep_edges = 16
@@ -314,13 +328,14 @@ def _train(params, n_steps: int, chunk: int):
 
 
 if __name__ == "__main__":
-    batch_size = 8  # try 8 or 16 for better GPU usage
+    batch_size = 8  
+    steps = 10000
     key = jax.random.PRNGKey(0)
     params = jax.random.normal(key, shape=(batch_size, pc))  # (batch_size, num_params)
     params = jax.device_put(params, gpu)
     target_probs = jax.device_put(jnp.asarray(probs_full.values, dtype=jnp.float64), gpu)
 
-    trained_params, opt_state, logs = _train(params, 1000, 50)
+    trained_params, opt_state, logs = _train(params, steps, 50)
 
     jax.block_until_ready(trained_params)      # wait until training ends
 

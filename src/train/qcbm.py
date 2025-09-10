@@ -52,35 +52,23 @@ class QCBM:
         if self.circuit is None:
             raise RuntimeError("Call build_circuits() before using loss or circuit")
 
-        params = (
-            params if isinstance(params, (jnp.ndarray, jax.Array))
-            else jnp.array(params)
-        ) 
+        params = params if isinstance(params, (jnp.ndarray, jax.Array)) else jnp.array(params)
         qcbm_probs = self.circuit(params)
 
-        loss_mmd= self.mmd_fn(
-            self.target_probs,
-            qcbm_probs,
-            kernel="laplace_gaussian",
-            number_bandwidths=10,
-            weights_type="uniform",
-            build_details=False,  
-            dtype=self.dtype,
-        )
+        # match the evaluator dtype (you built it with dtype=float64)
+        p = self.target_probs.astype(jnp.float64)
+        q = qcbm_probs.astype(jnp.float64)
+
+        loss_mmd = self.mmd_fn(p, q)
+
         def kl_div(p, q, eps=1e-10):
-            """
-            KL(p || q)  for discrete probs.
-            - 两边都 clip 到 [eps, 1] 再归一化，保证 grad 和数值稳定。
-            - 返回标量 (float64 if inputs are float64)
-            """
-            p = jnp.clip(p, eps, 1.0)
-            q = jnp.clip(q, eps, 1.0)
-            p = p / p.sum()
-            q = q / q.sum()
+            p = jnp.clip(p, eps, 1.0); q = jnp.clip(q, eps, 1.0)
+            p = p / p.sum();           q = q / q.sum()
             return jnp.sum(p * jnp.log(p / q))
 
         loss_kl = kl_div(self.target_probs, qcbm_probs)
-        loss = loss_mmd * 0.5 + loss_kl * 0.5
+        loss = 0.5 * loss_mmd + 0.5 * loss_kl
         return loss, {"mmd": loss_mmd, "kl": loss_kl}
+
     
 
