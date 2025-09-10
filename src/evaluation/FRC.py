@@ -4,7 +4,7 @@ from pathlib import Path
 
 import jax, jax.numpy as jnp
 jax.config.update("jax_enable_x64", True)
-
+os.environ["JAX_TRACEBACK_FILTERING"]="off"
 import numpy as np
 import pandas as pd
 

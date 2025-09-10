@@ -6,8 +6,6 @@ os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 os.environ["JAX_PLATFORM_NAME"] = "gpu"
 os.environ["JAX_TRACEBACK_FILTERING"]="off"
 
-
-
 import pennylane as qml
 import jax
 jax.config.update("jax_enable_x64", True)
@@ -72,7 +70,7 @@ if report1_dir not in sys.path:
     sys.path.insert(0, report1_dir)
 
 
-from qcbm import QCBM
+from src.train.qcbm import QCBM
 
 
 
