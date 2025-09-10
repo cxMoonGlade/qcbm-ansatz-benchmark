@@ -1,0 +1,58 @@
+[
+  {
+    "ansatz": 1,
+    "shots": 10000,
+    "Fidelity": 1.0,
+    "Rate": 0.052679768786127165,
+    "Coverage": 0.5895953757225434,
+    "counts": {
+      "|G_train|": 9644,
+      "|G_new|": 356,
+      "|G_sol|": 356,
+      "|unique(G_sol)|": 102,
+      "Q": 10000
+    }
+  },
+  {
+    "ansatz": 2,
+    "shots": 10000,
+    "Fidelity": 1.0,
+    "Rate": 0.03344277456647399,
+    "Coverage": 0.5260115606936416,
+    "counts": {
+      "|G_train|": 9774,
+      "|G_new|": 226,
+      "|G_sol|": 226,
+      "|unique(G_sol)|": 91,
+      "Q": 10000
+    }
+  },
+  {
+    "ansatz": 3,
+    "shots": 10000,
+    "Fidelity": 1.0,
+    "Rate": 0.024860115606936413,
+    "Coverage": 0.41040462427745666,
+    "counts": {
+      "|G_train|": 9832,
+      "|G_new|": 168,
+      "|G_sol|": 168,
+      "|unique(G_sol)|": 71,
+      "Q": 10000
+    }
+  },
+  {
+    "ansatz": 4,
+    "shots": 10000,
+    "Fidelity": 1.0,
+    "Rate": 0.10728323699421964,
+    "Coverage": 0.6416184971098265,
+    "counts": {
+      "|G_train|": 9275,
+      "|G_new|": 725,
+      "|G_sol|": 725,
+      "|unique(G_sol)|": 111,
+      "Q": 10000
+    }
+  }
+]

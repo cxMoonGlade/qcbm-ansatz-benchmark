@@ -75,45 +75,6 @@ if report1_dir not in sys.path:
 from qcbm import QCBM
 
 
-## for mi ansatz
-def mutual_information_matrix(bits: jnp.ndarray) -> jnp.ndarray:
-    """
-    bits : (N, n)  0/1 ndarray
-    return: (n, n)  float64 JAX array,  diag -> 0
-    """
-    N, n = bits.shape
-    bits = bits.astype(jnp.int32)                  # 确保 0/1 -> 0/1 int
-
-    # --- 1. single qubit edge probs P(q_k = 1) ---------------------------------
-    pk1 = bits.mean(axis=0)                       # (n,)  float64
-    pk0 = 1.0 - pk1                               # (n,)
-
-    # --- 2. 2 qubits unite probs P(q_i = a, q_j = b) ------------------------
-    #    P11(i,j) = mean( bits[:,i] & bits[:,j] )
-    bT        = bits.T                            # (n, N)
-    P11       = (bT[:, None, :] & bT[None, :, :]).mean(axis=-1)  # (n, n)
-    
-    P10 = pk1[:, None] - P11                      # (n, n)
-    P01 = pk1[None, :] - P11
-    P00 = 1.0 - (P11 + P10 + P01)
-
-    # --- 3. mutal info I(i,j) = Σ_{a,b∈{0,1}} P_ab log( P_ab / (P_a·P_b) ) --
-    eps  = 1e-12
-    P_ab = jnp.stack([P00, P01, P10, P11], axis=0)       # (4, n, n)
-    logt = jnp.log( jnp.clip(P_ab, eps) )
-    pk0_col = pk0[:, None]          # (n,1)
-    pk1_col = pk1[:, None]          # (n,1)
-    logm = jnp.log( jnp.clip(
-        jnp.stack([pk0_col*pk0,
-                pk0_col*pk1,
-                pk1_col*pk0, 
-                pk1_col*pk1],
-                axis=0), eps) )
-    Iij  = jnp.sum(P_ab * (logt - logm), axis=0)         # (n, n)
-
-    # --- 4. diag reset & return jnp.ndarray -------------------------------
-    Iij = Iij.at[jnp.diag_indices(n)].set(0.0)
-    return Iij
 
 # ------------  init target probs & model & params ------------
 from itertools import product
@@ -142,32 +103,6 @@ print("target_probs shape:", target_probs.shape,
       "dtype:", target_probs.dtype,
       "sum =", float(target_probs.sum()))
 
-# ------------ parameter counts ------------
-# P = 102, n = 8, L = 4
-def count_params1(n_bits: int, L: int) -> int:
-    """
-    return params requested for ansatz1
-    """
-    assert L % 2 == 0, "for ansatz1, L must be even number"
-    return int((3 * L  + 1) * n_bits - (L))
-
-# R = 3, C = 4, PL = 45, L = 5, P = 225 
-def count_params2(R: int, C: int, L: int, periodic: bool = False) -> int:
-    n = R * C
-    per_layer = 2 * n + (R * (C - 1) + C * (R - 1))
-    if periodic:
-        per_layer += R + C
-    return per_layer * L
-
-# R = 3, C = 4, PL = 41, L = 5, P = 205
-def count_params3(R: int, C: int, L: int, add_dt: bool = False) -> int:
-    n = R * C
-    per_layer = 2*n + R*(C-1) + (R-1)*C + (1 if add_dt else 0)
-    return per_layer * L
-
-# n = 12, L = 5, keep_edges = 20, extras = 6, P = 226
-def count_params4(n: int, L: int, keep_edges: int, extras: int = 6) -> int:
-    return 2*L*n + L*keep_edges + extras  
 
 # ------------ ansatz factory ------------
 
@@ -188,58 +123,26 @@ mmd_eval = build_mmdagg_prob(
     use_sqrt=False,                   # True if you want MMD (not MMD^2)
 )
 
-# inside your model.loss:
-# qcbm_probs = self.circuit(params)  # (d,)
-ansatz = ANSA_FN
-n_qubits= 8
-mmd_fn = mmd_eval
-R = 2
-C = 4
-keep_edges = 16
 
 
-def pc_set(ansatz):
-    print(ansatz)
-    if ansatz == hardware_efficient_ansatz:
-        pc = count_params1(n_bits, L1)
-        L = L1
-        id = 1
+from src.circuits.specs import get_ansatz_spec
 
-    if ansatz == ising_structured_ansatz:
-        pc = count_params2(R, C, L1, False)
-        L = L1
-        id = 2
-
-    if ansatz == eh2d_ansatz:
-        pc = count_params3(R, C, L1)
-        L = L1
-        id = 3
-
-    if ansatz == mi_ansatz:
-        pc = count_params4(n_qubits, L_M, keep_edges)
-        L = L_M
-        id = 4
-        bit_np = df[bit_cols].values
-        mi_mat = mutual_information_matrix(bit_np)
-        triu_i, triu_j = jnp.triu_indices(n_qubits, k=1)
-        mi_flat   = mi_mat[triu_i, triu_j]
-        top_idx   = jnp.argsort(-mi_flat)[:keep_edges]
-        mi_edges  = [(int(triu_i[k]), int(triu_j[k])) for k in top_idx]  # [(i,j),...]
-        def ansatz_mi(params, wires, *, L=None, **kw):
-            return mi_ansatz(
-                params, wires,
-                mi_edges = mi_edges,
-                L = L,
-                **kw
-            )
-        ansatz = ansatz_mi
-        
-    return ansatz, L, pc, id
+bit_cols = [f"q{i}" for i in range(n_bits)]
+ANSA_FN, L, pc, meta = get_ansatz_spec(
+    ansatz_id=ANSATZ_ID,   # whatever you parse
+    n_bits=n_bits,
+    R=2, C=4,              # your grid for ansatz2/3
+    L1=4, L_M=3,           # your layer choices
+    keep_edges=16, extras=4,  # ansatz4 settings
+    train_df=df, bit_cols=bit_cols   # needed for ansatz4
+)
+print(f"[info] Using {meta['name']} with L={L}, param_count={pc}")
 
 
-ANSA_FN, L, pc, _= pc_set(ansatz)
 
-model = QCBM(ansatz=ANSA_FN, n_qubits=n_bits, L=L, mmd_fn=mmd_fn, target_probs = target_probs)
+
+
+model = QCBM(ansatz=ANSA_FN, n_qubits=n_bits, L=L, mmd_fn=mmd_eval, target_probs = target_probs)
 model.build_circuits()
 key = jax.random.PRNGKey(0)
 params = jax.random.normal(key, shape=(pc,))
